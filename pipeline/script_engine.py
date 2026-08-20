@@ -35,10 +35,12 @@ def build_script_plan(packet: ResearchPacket, chapters: tuple[str, ...] = DEFAUL
         sources = ", ".join(claim.source_ids) or "UNSUPPORTED"
         claim_lines.append(f"- [{claim.id}] {claim.text} (sources: {sources})")
     evidence = "\n".join(claim_lines) or "- No verified claims available."
-    prompt = f"""Write a cinematic but factual space documentary about: {packet.topic}\n\n"
+    prompt = (
+        f"Write a cinematic but factual space documentary about: {packet.topic}\n\n"
         f"Angle: {packet.angle}\n\n"
         "Use only the supplied evidence for factual assertions. Never invent numbers, discoveries, quotations, dates, or scientific conclusions. "
         "Preserve claim IDs in a machine-readable citation marker such as [claim:c1]. "
-        "Use these chapters in order: " + " → ".join(chapters) + "\n\n"
-        "Verified evidence:\n" + evidence
+        f"Use these chapters in order: {' → '.join(chapters)}\n\n"
+        f"Verified evidence:\n{evidence}"
+    )
     return ScriptPlan(title=packet.topic.strip(), chapters=chapters, prompt=prompt)

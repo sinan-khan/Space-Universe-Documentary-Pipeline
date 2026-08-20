@@ -1,0 +1,47 @@
+channel:
+  name: "Space & Universe"
+  niche: "cinematic space and astronomy documentaries"
+  language: "en-US"
+  audience: "general audience"
+  long_form:
+    target_minutes: 30
+    min_minutes: 25
+    max_minutes: 35
+  shorts:
+    per_long_form: 6
+    target_seconds: 45
+    max_seconds: 60
+  publishing:
+    long_form_every_days: 2
+    shorts_every_days: 1
+
+story:
+  tone: "cinematic, curious, factual, accessible"
+  structure:
+    - hook
+    - premise
+    - context
+    - escalation
+    - discovery
+    - implications
+    - conclusion
+  require_citations: true
+  avoid_unverified_claims: true
+
+visuals:
+  aspect_ratio_long: "16:9"
+  aspect_ratio_short: "9:16"
+  minimum_scene_seconds: 5
+  preferred_scene_seconds: 10
+  providers:
+    - nasa
+    - generated
+  fallback: "generated"
+
+quality:
+  minimum_script_words: 3600
+  maximum_script_words: 5600
+  require_source_for_factual_claim: true
+  require_media_attribution: true
+  reject_missing_audio: true
+  reject_empty_timeline: true

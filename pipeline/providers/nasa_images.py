@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import time
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 from ..models import MediaAsset, Source
 from ..research_engine import ResearchQuery
@@ -14,10 +14,11 @@ BASE_URL = "https://images-api.nasa.gov"
 
 
 class NASAImageVideoProvider:
-    """Dependency-free adapter for NASA's public Image and Video Library API.
+    """Resilient NASA Image and Video Library client.
 
-    Search is deliberately resilient: a natural-language documentary title can be
-    too specific for NASA's index, so we progressively try simpler search terms.
+    Search results expose thumbnails, so the provider resolves each selected
+    NASA ID through /asset/{id} and returns the best original/full-resolution
+    image URL rather than a ~thumb.jpg preview.
     """
 
     name = "nasa-image-video-library"
@@ -42,20 +43,44 @@ class NASAImageVideoProvider:
     def _queries(query: str) -> list[str]:
         cleaned = " ".join(query.split()).strip()
         words = [w.strip(".,!?;:\"'()[]") for w in cleaned.split()]
-        # Keep queries broad enough to match NASA's metadata index.
+        lower = {w.lower() for w in words}
         candidates = [cleaned]
         if len(words) > 5:
             candidates.append(" ".join(words[:5]))
-        if "star" in {w.lower() for w in words}:
-            candidates += ["stars", "stellar", "supernova"]
-        if "black" in {w.lower() for w in words} and "hole" in {w.lower() for w in words}:
+        if "star" in lower or "stars" in lower:
+            candidates += ["stars", "stellar", "supernova", "neutron star"]
+        if "black" in lower and "hole" in lower:
             candidates += ["black hole", "black holes"]
-        if "planet" in {w.lower() for w in words}:
+        if "planet" in lower or "planets" in lower:
             candidates += ["planet", "planets", "solar system"]
-        if "galaxy" in {w.lower() for w in words}:
+        if "galaxy" in lower or "galaxies" in lower:
             candidates += ["galaxy", "galaxies"]
-        # Preserve order while removing duplicates.
+        if "nebula" in lower:
+            candidates += ["nebula", "nebulae"]
         return list(dict.fromkeys(candidates))
+
+    def _original_url(self, nasa_id: str, media_type: str = "image") -> str | None:
+        try:
+            payload = self._get(f"/asset/{quote(nasa_id, safe='')}")
+        except Exception:
+            return None
+        links = payload.get("collection", {}).get("items", [])
+        candidates: list[str] = []
+        for item in links:
+            href = str(item.get("href", ""))
+            if not href:
+                continue
+            lower = href.lower()
+            if media_type == "image":
+                if lower.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                    candidates.append(href)
+            elif media_type == "video" and lower.endswith((".mp4", ".mov", ".webm")):
+                candidates.append(href)
+        # Prefer the largest-looking original asset. NASA's asset endpoint
+        # commonly returns original before derived thumbnails, but sort away
+        # obvious thumbnails as a second line of defense.
+        candidates.sort(key=lambda x: ("thumb" in x.lower(), "small" in x.lower(), len(x)))
+        return candidates[0] if candidates else None
 
     def search_assets(self, query: str, media_type: str | None = "image", page_size: int = 25) -> list[MediaAsset]:
         seen: set[str] = set()
@@ -71,14 +96,15 @@ class NASAImageVideoProvider:
             for item in payload.get("collection", {}).get("items", []):
                 data = (item.get("data") or [{}])[0]
                 nasa_id = str(data.get("nasa_id", ""))
-                links = item.get("links") or []
-                preview = next((x.get("href") for x in links if x.get("rel") == "preview"), None)
-                if not nasa_id or not preview or nasa_id in seen:
+                if not nasa_id or nasa_id in seen:
+                    continue
+                resolved = self._original_url(nasa_id, media_type or "image")
+                if not resolved:
                     continue
                 seen.add(nasa_id)
                 assets.append(MediaAsset(
                     id=nasa_id,
-                    url=preview,
+                    url=resolved,
                     provider=self.name,
                     title=data.get("title") or nasa_id,
                     attribution=data.get("photographer") or data.get("secondary_creator") or "NASA",

@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .production import build_documentary
-
 
 def run(topic: str, output_dir: str = "artifacts", dry_run: bool = True) -> Path:
     if dry_run:
@@ -15,6 +13,8 @@ def run(topic: str, output_dir: str = "artifacts", dry_run: bool = True) -> Path
             encoding="utf-8",
         )
         return root
+
+    from .production import build_documentary
     return build_documentary(topic, output_dir)
 
 

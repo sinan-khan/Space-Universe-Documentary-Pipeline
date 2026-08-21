@@ -22,12 +22,12 @@ permissions:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}
       PIPER_EXECUTABLE: piper
-      PIPER_MODEL: ${{ vars.PIPER_MODEL || '' }}
+      PIPER_MODEL: ${{ github.workspace }}/models/en_US-lessac-medium.onnx
       PUBLISH_ENABLED: 'false'
     steps:
       - name: Checkout
@@ -39,8 +39,21 @@ jobs:
           python-version: '3.12'
           cache: pip
 
-      - name: Install dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng
+          python -m pip install --upgrade pip
+          python -m pip install piper-tts
+
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
+
+      - name: Install Piper voice model
+        run: |
+          mkdir -p models
+          python -m piper.download_voices en_US-lessac-medium --data-dir models
+          test -f models/en_US-lessac-medium.onnx
 
       - name: Run safe pipeline dry-run
         if: ${{ !inputs.live }}
@@ -49,3 +62,19 @@ jobs:
       - name: Run live generation
         if: ${{ inputs.live }}
         run: python -m pipeline --topic "${{ inputs.topic || 'What Happens When a Star Dies?' }}" --live
+
+      - name: Verify generated video
+        if: ${{ inputs.live }}
+        run: |
+          VIDEO="artifacts/what-happens-when-a-star-dies/documentary.mp4"
+          test -s "$VIDEO"
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 "$VIDEO"
+
+      - name: Upload generated documentary
+        if: ${{ inputs.live && success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: space-documentary-output
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7

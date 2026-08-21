@@ -17,27 +17,43 @@ def _ffmpeg() -> str:
 
 
 def build_slideshow(images: list[Path], duration: float, output: str | Path, width: int = 1920, height: int = 1080) -> Path:
-    """Build a documentary-safe slideshow; every segment has identical SAR."""
+    """Build a slideshow that is guaranteed to cover the requested narration duration."""
     if not images:
         raise VideoBuildError("no visual assets available")
     if duration <= 0:
         raise VideoBuildError("duration must be positive")
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    per_image = duration / len(images)
+
+    # Give the visual timeline a small safety margin. FFmpeg's frame/timebase
+    # rounding can otherwise make the concatenated video a few seconds shorter
+    # than the measured narration, which then causes -shortest to truncate audio.
+    visual_duration = duration + 2.0
+    per_image = visual_duration / len(images)
     inputs: list[str] = []
     filters: list[str] = []
     for i, image in enumerate(images):
         inputs += ["-loop", "1", "-t", f"{per_image:.3f}", "-i", str(image)]
         filters.append(
-            f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=increase," \
-            f"crop={width}:{height},setsar=1,setdar={width}/{height}," \
+            f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1,setdar={width}/{height},"
             f"zoompan=z='min(zoom+0.0005,1.08)':d=1:s={width}x{height}:fps=30,"
             f"setsar=1,setpts=PTS-STARTPTS[v{i}]"
         )
     joined = "".join(f"[v{i}]" for i in range(len(images)))
-    filters.append(f"{joined}concat=n={len(images)}:v=1:a=0,setsar=1,format=yuv420p[v]")
-    command = [_ffmpeg(), "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[v]", "-r", "30", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-movflags", "+faststart", str(output)]
+    filters.append(
+        f"{joined}concat=n={len(images)}:v=1:a=0,"
+        f"tpad=stop_mode=clone:stop_duration=2,"
+        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,"
+        f"setsar=1,format=yuv420p[v]"
+    )
+    command = [
+        _ffmpeg(), "-y", *inputs,
+        "-filter_complex", ";".join(filters),
+        "-map", "[v]", "-r", "30",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-movflags", "+faststart", str(output),
+    ]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise VideoBuildError(result.stderr[-5000:])
@@ -47,7 +63,12 @@ def build_slideshow(images: list[Path], duration: float, output: str | Path, wid
 def mux_audio(video: str | Path, audio: str | Path, output: str | Path) -> Path:
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    command = [_ffmpeg(), "-y", "-i", str(video), "-i", str(audio), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output)]
+    command = [
+        _ffmpeg(), "-y", "-i", str(video), "-i", str(audio),
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", "-movflags", "+faststart", str(output),
+    ]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise VideoBuildError(result.stderr[-5000:])

@@ -1,0 +1,51 @@
+name: Space Documentary Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Space documentary topic'
+        required: true
+        default: 'What Happens When a Star Dies?'
+        type: string
+      live:
+        description: 'Enable Gemini/TTS generation (requires secrets)'
+        required: true
+        default: false
+        type: boolean
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+      PIPER_EXECUTABLE: piper
+      PIPER_MODEL: ${{ vars.PIPER_MODEL || '' }}
+      PUBLISH_ENABLED: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run safe pipeline dry-run
+        if: ${{ !inputs.live }}
+        run: python -m pipeline --topic "${{ inputs.topic || 'What Happens When a Star Dies?' }}"
+
+      - name: Run live generation
+        if: ${{ inputs.live }}
+        run: python -m pipeline --topic "${{ inputs.topic || 'What Happens When a Star Dies?' }}" --live
